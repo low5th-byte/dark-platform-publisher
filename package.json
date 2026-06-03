@@ -1,0 +1,26 @@
+{
+  "name": "dark-platform-publisher",
+  "version": "1.0.0",
+  "description": "A creator-operated publishing tool for original analog horror short videos.",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k -n VITE,ELECTRON -c cyan,magenta \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "build": "vite build",
+    "start": "NODE_ENV=production electron .",
+    "install-browsers": "playwright install chromium"
+  },
+  "dependencies": {
+    "node-schedule": "^2.1.1",
+    "playwright": "^1.40.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "electron": "^28.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "vite": "^5.0.8",
+    "wait-on": "^7.2.0"
+  }
+}
