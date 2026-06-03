@@ -24,15 +24,25 @@ function getProfileDir(platform) {
   return dir;
 }
 
+function clearProfileLocks(profileDir) {
+  // Stale lock files from a previous crash prevent Chromium from starting on Windows
+  for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
+    try { fs.unlinkSync(path.join(profileDir, f)); } catch {}
+  }
+}
+
 async function launchContext(platform, headless) {
   const chromium = getChromium();
   const profileDir = getProfileDir(platform);
+  clearProfileLocks(profileDir);
+
   const opts = {
     headless,
     viewport: { width: 1280, height: 820 },
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
+      '--disable-gpu',
       '--disable-blink-features=AutomationControlled',
     ],
   };
