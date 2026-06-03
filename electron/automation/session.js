@@ -1,138 +1,182 @@
-const path = require('path');
-const fs = require('fs');
-const { app, dialog } = require('electron');
+const { BrowserWindow } = require('electron');
 
-// In a packaged app, require playwright from the unpacked asar directory
-function getChromium() {
-  if (app.isPackaged) {
-    const pw = require(path.join(
-      process.resourcesPath,
-      'app.asar.unpacked',
-      'node_modules',
-      'playwright'
-    ));
-    return pw.chromium;
-  }
-  return require('playwright').chromium;
+const loginWindows = new Map();
+
+function makeBrowser(platform, show) {
+  return new BrowserWindow({
+    width: 1280,
+    height: 820,
+    show,
+    webPreferences: {
+      partition: `persist:${platform}`,
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
 }
 
-const loginContexts = new Map();
-
-function getProfileDir(platform) {
-  const dir = path.join(app.getPath('userData'), 'profiles', platform);
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-function clearProfileLocks(profileDir) {
-  // Stale lock files from a previous crash prevent Chromium from starting on Windows
-  for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
-    try { fs.unlinkSync(path.join(profileDir, f)); } catch {}
-  }
-}
-
-async function launchContext(platform, headless) {
-  const chromium = getChromium();
-  const profileDir = getProfileDir(platform);
-  clearProfileLocks(profileDir);
-
-  const opts = {
-    headless,
-    viewport: { width: 1280, height: 820 },
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-gpu',
-      '--disable-blink-features=AutomationControlled',
-    ],
-  };
-
-  // Try Chrome → Edge → Playwright Chromium (requires npm run install-browsers)
-  const channels = ['chrome', 'msedge', null];
-  let lastErr;
-  for (const channel of channels) {
-    try {
-      return await chromium.launchPersistentContext(
-        profileDir,
-        channel ? { ...opts, channel } : opts
-      );
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  throw new Error(
-    'ブラウザが見つかりません。Google Chrome をインストールするか、' +
-    'コマンドプロンプトで npm run install-browsers を実行してください。\n\n' +
-    lastErr.message
-  );
+// Poll for a CSS selector; resolves when found or rejects on timeout
+function waitForSelector(win, selector, timeout = 20000) {
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + timeout;
+    const tick = async () => {
+      if (win.isDestroyed()) return reject(new Error('Window closed'));
+      try {
+        const found = await win.webContents.executeJavaScript(
+          `!!document.querySelector(${JSON.stringify(selector)})`
+        );
+        if (found) return resolve();
+      } catch {}
+      if (Date.now() > deadline) return reject(new Error(`Timeout: ${selector}`));
+      setTimeout(tick, 300);
+    };
+    tick();
+  });
 }
 
 async function openLoginBrowser(platform) {
-  await closeLoginBrowser(platform);
-  try {
-    const context = await launchContext(platform, false);
-    loginContexts.set(platform, context);
-    const page = context.pages()[0] || await context.newPage();
-    const url = platform === 'x' ? 'https://x.com/login' : 'https://www.threads.net/login';
-    await page.goto(url);
-    context.on('close', () => loginContexts.delete(platform));
-    return { success: true };
-  } catch (err) {
-    dialog.showErrorBox('ブラウザ起動エラー', err.message);
-    throw err;
-  }
+  closeLoginBrowser(platform);
+  const win = makeBrowser(platform, true);
+  loginWindows.set(platform, win);
+  const url = platform === 'x' ? 'https://x.com/login' : 'https://www.threads.net/login';
+  await win.loadURL(url);
+  win.on('closed', () => loginWindows.delete(platform));
+  return { success: true };
 }
 
-async function closeLoginBrowser(platform) {
-  const existing = loginContexts.get(platform);
-  if (existing) {
-    try { await existing.close(); } catch {}
-    loginContexts.delete(platform);
-  }
+function closeLoginBrowser(platform) {
+  const win = loginWindows.get(platform);
+  if (win && !win.isDestroyed()) win.close();
+  loginWindows.delete(platform);
   return { success: true };
 }
 
 async function checkLoginStatus(platform) {
-  if (loginContexts.has(platform)) {
-    return { loggedIn: null, busy: true };
-  }
-  let context;
+  if (loginWindows.has(platform)) return { loggedIn: null, busy: true };
+
+  const win = makeBrowser(platform, false);
   try {
-    context = await launchContext(platform, true);
-    const page = await context.newPage();
     if (platform === 'x') {
-      await page.goto('https://x.com/home', { waitUntil: 'networkidle', timeout: 20000 });
-      const loggedIn = await page.$('[data-testid="SideNav_NewTweet_Button"]') !== null;
+      await win.loadURL('https://x.com/home');
+      await new Promise(r => win.webContents.once('did-finish-load', r));
+      await new Promise(r => setTimeout(r, 2000));
+      const loggedIn = await win.webContents.executeJavaScript(
+        `!!document.querySelector('[data-testid="SideNav_NewTweet_Button"]')`
+      );
       return { loggedIn };
     } else {
-      await page.goto('https://www.threads.net', { waitUntil: 'networkidle', timeout: 20000 });
-      const onLoginPage = await page.$('text=Log in with Instagram') !== null
-        || page.url().includes('/login');
-      return { loggedIn: !onLoginPage };
+      await win.loadURL('https://www.threads.net');
+      await new Promise(r => win.webContents.once('did-finish-load', r));
+      await new Promise(r => setTimeout(r, 2000));
+      const url = win.webContents.getURL();
+      return { loggedIn: !url.includes('/login') };
     }
   } catch (err) {
     return { loggedIn: false, error: err.message };
   } finally {
-    if (context) try { await context.close(); } catch {}
+    if (!win.isDestroyed()) win.close();
   }
 }
 
 async function executePost(platform, contentArray) {
-  if (loginContexts.has(platform)) {
+  if (loginWindows.has(platform)) {
     throw new Error(`${platform} のログインブラウザが開いています。閉じてから再試行してください。`);
   }
-  const context = await launchContext(platform, true);
+  const win = makeBrowser(platform, false);
   try {
     if (platform === 'x') {
-      const { postToX } = require('./twitter');
-      await postToX(context, contentArray);
+      await postToX(win, contentArray);
     } else {
-      const { postToThreads } = require('./threads');
-      await postToThreads(context, contentArray);
+      await postToThreads(win, contentArray);
     }
   } finally {
-    try { await context.close(); } catch {}
+    if (!win.isDestroyed()) win.close();
   }
+}
+
+async function postToX(win, contentArray) {
+  await win.loadURL('https://x.com/home');
+  await waitForSelector(win, '[data-testid="SideNav_NewTweet_Button"]');
+
+  await win.webContents.executeJavaScript(
+    `document.querySelector('[data-testid="SideNav_NewTweet_Button"]').click()`
+  );
+  await waitForSelector(win, '[data-testid="tweetTextarea_0"]');
+
+  await win.webContents.executeJavaScript(
+    `document.querySelector('[data-testid="tweetTextarea_0"]').focus()`
+  );
+  await win.webContents.insertText(contentArray[0]);
+
+  for (let i = 1; i < contentArray.length; i++) {
+    await waitForSelector(win, '[data-testid="addButton"]');
+    await win.webContents.executeJavaScript(
+      `document.querySelector('[data-testid="addButton"]').click()`
+    );
+    await waitForSelector(win, `[data-testid="tweetTextarea_${i}"]`);
+    await win.webContents.executeJavaScript(
+      `document.querySelector('[data-testid="tweetTextarea_${i}"]').focus()`
+    );
+    await win.webContents.insertText(contentArray[i]);
+  }
+
+  await win.webContents.executeJavaScript(`
+    (document.querySelector('[data-testid="tweetButtonInline"]') ||
+     document.querySelector('[data-testid="tweetButton"]')).click()
+  `);
+  await new Promise(r => setTimeout(r, 3000));
+}
+
+async function postToThreads(win, contentArray) {
+  await win.loadURL('https://www.threads.net');
+  await new Promise(r => win.webContents.once('did-finish-load', r));
+  await new Promise(r => setTimeout(r, 2000));
+
+  // Click compose button
+  const clicked = await win.webContents.executeJavaScript(`
+    (function() {
+      const btn = document.querySelector('[aria-label="New thread"]') ||
+                  document.querySelector('[aria-label="新しいスレッド"]');
+      if (btn) { btn.click(); return true; }
+      return false;
+    })()
+  `);
+  if (!clicked) await win.loadURL('https://www.threads.net/compose');
+
+  await waitForSelector(win, '[contenteditable="true"]');
+  await win.webContents.executeJavaScript(
+    `document.querySelector('[contenteditable="true"]').focus()`
+  );
+  await win.webContents.insertText(contentArray[0]);
+
+  for (let i = 1; i < contentArray.length; i++) {
+    await win.webContents.executeJavaScript(`
+      (function() {
+        const btn = document.querySelector('[aria-label="Add to thread"]') ||
+                    [...document.querySelectorAll('button')].find(b => b.textContent.includes('Add'));
+        if (btn) btn.click();
+      })()
+    `);
+    await new Promise(r => setTimeout(r, 1000));
+    const inputs = await win.webContents.executeJavaScript(
+      `document.querySelectorAll('[contenteditable="true"]').length`
+    );
+    if (inputs > i) {
+      await win.webContents.executeJavaScript(
+        `document.querySelectorAll('[contenteditable="true"]')[${i}].focus()`
+      );
+      await win.webContents.insertText(contentArray[i]);
+    }
+  }
+
+  await win.webContents.executeJavaScript(`
+    (function() {
+      const btn = [...document.querySelectorAll('button')]
+        .find(b => b.textContent.trim() === 'Post' || b.textContent.trim() === '投稿');
+      if (btn) btn.click();
+    })()
+  `);
+  await new Promise(r => setTimeout(r, 3000));
 }
 
 module.exports = { openLoginBrowser, closeLoginBrowser, checkLoginStatus, executePost };

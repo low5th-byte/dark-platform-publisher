@@ -9,12 +9,10 @@
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win --x64",
     "dist:mac": "npm run build && electron-builder --mac",
-    "start": "NODE_ENV=production electron .",
-    "install-browsers": "playwright install chromium"
+    "start": "NODE_ENV=production electron ."
   },
   "dependencies": {
     "node-schedule": "^2.1.1",
-    "playwright": "^1.40.0",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
@@ -38,10 +36,6 @@
       "electron/**/*",
       "node_modules/**/*",
       "package.json"
-    ],
-    "asarUnpack": [
-      "node_modules/playwright/**/*",
-      "node_modules/playwright-core/**/*"
     ],
     "win": {
       "target": [
