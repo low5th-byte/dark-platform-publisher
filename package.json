@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "concurrently -k -n VITE,ELECTRON -c cyan,magenta \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "build": "vite build",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win --x64",
+    "dist:mac": "npm run build && electron-builder --mac",
     "start": "NODE_ENV=production electron .",
     "install-browsers": "playwright install chromium"
   },
@@ -18,9 +21,48 @@
     "@vitejs/plugin-react": "^4.2.1",
     "concurrently": "^8.2.2",
     "electron": "^28.0.0",
+    "electron-builder": "^24.9.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "vite": "^5.0.8",
     "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.darkplatform.publisher",
+    "productName": "Dark Platform Publisher",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/playwright/**/*",
+      "node_modules/playwright-core/**/*"
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Dark Platform Publisher"
+    },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] }
+      ],
+      "category": "public.app-category.social-networking"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
   }
 }

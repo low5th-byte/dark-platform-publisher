@@ -1,7 +1,16 @@
-const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
 const { app } = require('electron');
+
+// When packaged, playwright is unpacked from asar — point to the correct path
+if (app.isPackaged) {
+  const unpackedPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'playwright');
+  process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(app.getPath('userData'), 'browsers');
+  // Require playwright from the unpacked location
+  process.env.PLAYWRIGHT_CLI_DISPLAY_VERSION = '';
+}
+
+const { chromium } = require('playwright');
 
 // Track open login browser contexts to avoid profile lock conflicts
 const loginContexts = new Map();
