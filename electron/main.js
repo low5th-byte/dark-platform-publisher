@@ -1,7 +1,6 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 
-const isDev = process.env.NODE_ENV !== 'production';
 let mainWindow;
 
 function createWindow() {
@@ -20,7 +19,7 @@ function createWindow() {
     autoHideMenuBar: true,
   });
 
-  if (isDev) {
+  if (!app.isPackaged) {
     mainWindow.loadURL('http://localhost:5173');
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
