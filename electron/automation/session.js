@@ -30,7 +30,11 @@ async function launchContext(platform, headless) {
   const opts = {
     headless,
     viewport: { width: 1280, height: 820 },
-    args: ['--disable-blink-features=AutomationControlled'],
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-blink-features=AutomationControlled',
+    ],
   };
 
   // Try Chrome → Edge → Playwright Chromium (requires npm run install-browsers)
