@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# Electron user data (sessions, profiles, posts) — stays local
+# Uncomment if you want to commit sample data:
+# !data/posts.example.json
